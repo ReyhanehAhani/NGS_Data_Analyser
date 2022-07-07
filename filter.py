@@ -1,7 +1,15 @@
-import numpy as np
 import pandas as pd
+import argparse
 
-def filter_by_parent(df, parent): 
+
+parser = argparse.ArgumentParser(description='Process csv gene files')
+parser.add_argument('mother', type=str, help='path for mother csv file', const=1, nargs='?', default='father_mother/filtered_MOT_T_4904_2.csv')
+parser.add_argument('father', type=str, help='path for father csv file', const=1, nargs='?', default='father_mother/filtered_MOT_T_4905_2.csv')
+parser.add_argument('output', type=str, help='path for output csv file', const=1, nargs='?', default='father_mother/output.csv')
+args = parser.parse_args()
+
+
+def filter_using_parent(df: pd.DataFrame, parent: str):
     # Keep Hom Iranome if it's NaN or 0
     df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
 
@@ -22,11 +30,26 @@ def filter_by_parent(df, parent):
     zygosity_index = df.columns.get_loc('Zygosity')
     df.insert(zygosity_index, 'Parent', parent)
 
+    # Drop columns with all NaN
+    df = df.dropna(axis=1, how='all')
 
-df = pd.read_csv('father_mother/filtered_MOT_T_4904_2.csv')
-filter_by_parent(df, 'mother')
-df.to_csv('father_mother/NAME.csv', index=False)
+    return df
 
-df = pd.read_csv('father_mother/filtered_MOT_T_4905_2.csv')
-filter_by_parent(df, 'father')
-df.to_csv('father_mother/NAME.csv', index=False)
+
+# Read datasets
+df_mother = filter_using_parent(pd.read_csv(
+    args.mother, on_bad_lines='skip'), 'mother')
+df_father = filter_using_parent(pd.read_csv(
+    args.father, on_bad_lines='skip'), 'father')
+
+# Merge datasets
+# Drop indexes to avoid incorrect indexes
+df_mother.reset_index(drop=True, inplace=True)
+df_father.reset_index(drop=True, inplace=True)
+# Concactinate datasets
+df_merged = pd.concat([df_mother, df_father])
+
+# Sort by Gene.refGene
+df = df_merged.sort_values('Gene.refGene')
+
+df = df.loc[:, df.columns != 'Parent']
