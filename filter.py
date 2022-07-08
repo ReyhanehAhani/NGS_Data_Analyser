@@ -60,7 +60,7 @@ def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
 
 
 
-# Read csv file and filter using `filter_using_parent`
+# Read csv file and filter using  `filter_using_parent`
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     columns = generate_column_names(path)
     # if any excess columns occur, get the columns til the defiend amount
