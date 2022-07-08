@@ -8,17 +8,17 @@ parser.add_argument('mother', type=str, help='path for mother csv file',
                     const=1, nargs='?', default='father_mother/filtered_MOT_T_4904_2.csv')
 parser.add_argument('father', type=str, help='path for father csv file',
                     const=1, nargs='?', default='father_mother/filtered_MOT_T_4905_2.csv')
-
-# TODO: Use better naming for arguemts and files
-parser.add_argument('couple', type=str, help='path for couple csv file',
-                    const=1, nargs='?', default='father_mother/couple.csv')
-parser.add_argument('compount_gene', type=str, help='path for compount_gene csv file',
-                    const=1, nargs='?', default='father_mother/compount_gene.csv')
-parser.add_argument('dangerous_gene', type=str, help='path for dangerous_gene csv file',
-                    const=1, nargs='?', default='father_mother/dangerous_gene.csv')
+parser.add_argument('mother_path', type=str, help='path for mother csv file',
+                    const=1, nargs='?', default='father_mother/filtered_MOT_T_4904_path_3.csv')
+parser.add_argument('father_path', type=str, help='path for father csv file',
+                    const=1, nargs='?', default='father_mother/filtered_MOT_T_4905_path_3.csv')
+parser.add_argument('output', type=str, help='path for output xlsx file',
+                    const=1, nargs='?', default='father_mother/output.xlsx')
 args = parser.parse_args()
 
 # Generate column names dynamicly based on first row, some faulty files have excess columns
+
+
 def generate_column_names(path: str, delimiter: str = ',') -> List[str]:
     with io.open(path, encoding='utf-8') as f:
         columns = f.readline().strip()
@@ -28,7 +28,7 @@ def generate_column_names(path: str, delimiter: str = ',') -> List[str]:
         return columns
 
 
-def filter_using_parent(df: pd.DataFrame, parent: str):
+def filter_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
     # Keep Hom Iranome if it's NaN or 0
     df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
 
@@ -49,28 +49,42 @@ def filter_using_parent(df: pd.DataFrame, parent: str):
     zygosity_index = df.columns.get_loc('Zygosity')
     df.insert(zygosity_index, 'Parent', parent)
 
-    # Drop columns with all NaN
-    df = df.dropna(axis=1, how='all')
+    return df
+
+def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
+    # Keep Hom Iranome if it's NaN or 0
+    df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
+    df = df[~(df['CLNSIG'].str.contains('Benign', case=False))]
 
     return df
 
 
-# Read csv file and filter using `filter_using_parent`
-def read_and_filter_dataset(path: str, parent: str):
-    columns = generate_column_names(args.mother)
-    # if any excess columns occur, get the columns til the defiend amount
-    return filter_using_parent(pd.read_csv(args.mother, names=columns, engine="python", on_bad_lines=lambda x: x[:len(columns)]), parent)
 
+# Read csv file and filter using `filter_using_parent`
+def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
+    columns = generate_column_names(path)
+    # if any excess columns occur, get the columns til the defiend amount
+    return filter_using_parent(pd.read_csv(path, names=columns, engine="python", on_bad_lines=lambda x: x[:len(columns)]), parent)
+
+def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
+    columns = generate_column_names(path)
+    # if any excess columns occur, get the columns til the defiend amount
+    return filter_path_using_parent(pd.read_csv(path, engine="python"), parent)
 
 def main():
     # Read datasets
     df_mother = read_and_filter_dataset(args.mother, 'mother')
     df_father = read_and_filter_dataset(args.father, 'father')
-
+    df_mother_path = read_and_filter_path_dataset(args.mother_path, 'mother')
+    df_father_path = read_and_filter_path_dataset(args.father_path, 'father')
+    
     # Merge datasets
     # Drop indexes to avoid incorrect indexes
     df_mother.reset_index(drop=True, inplace=True)
     df_father.reset_index(drop=True, inplace=True)
+    df_mother_path.reset_index(drop=True, inplace=True)
+    df_father_path.reset_index(drop=True, inplace=True)
+    
     # Concactinate datasets
     df_merged = pd.concat([df_mother, df_father])
 
@@ -80,20 +94,52 @@ def main():
     # Columns that need to be matched
     match_columns = ["Het Iranome", "Hom Iranome", "Het Our DB", "Chr", "Start",
                      "End", "Ref", "Alt", "Zygosity", "Gene.refGene", "ExonicFunc.refGene"]
-    
-    # Exonic values that can't be deleted
-    gene_exceptions = ['frameshift insertion', 'frameshift deletion', 'stopgain', 'stoploss', 'splice']
-    exception_columns = ['ExonicFunc.refGene', 'ExonicFunc.ensGene', 'ExonicFunc.knownGene', 'Func.refGene']
+
+    gene_exceptions = ['frameshift insertion',
+                       'frameshift deletion', 'stopgain', 'stoploss', 'splice']
+    exception_columns = ['ExonicFunc.refGene', 'ExonicFunc.ensGene',
+                         'ExonicFunc.knownGene', 'Func.refGene', 'Function_description']
 
     # Couple output
-    df[((df.duplicated(subset=match_columns, keep=False)) & (df['Parent'] != df['Parent'].shift(1)))].to_csv(args.couple, index=False)
+    couple = df[((df.duplicated(subset=match_columns, keep=False))
+                 & (df['Parent'] != df['Parent'].shift(1)))]
 
-    # Compount gene
-    df[(df.duplicated(subset=['Gene.refGene'], keep=False))].to_csv(args.compount_gene, index=False)
+    # compound gene
+    compound = df[(df.duplicated(subset=['Gene.refGene'], keep=False))]
 
     # Dangerous gene
-    df[(df[exception_columns].isin(gene_exceptions))].to_csv(args.dangerous_gene, index=False)
+    dangerous = df[(df[exception_columns].isin(gene_exceptions))]
+
+    print('Writing xlsx file ...')
+
+    writer = pd.ExcelWriter(args.output, engine='xlsxwriter')
+    couple.to_excel(writer, sheet_name='Sheet1',
+                    index=False, startcol=0, startrow=1)
+    worksheet = writer.sheets['Sheet1']
+    workbook  = writer.book
+
+    merge_format = workbook.add_format({
+        'bold':     True,
+        'align':    'center',
+        'valign':   'vcenter',
+        'fg_color': '#D7E4BC',
+    })
+
+    worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در زوج', merge_format)
+
+    compound.to_excel(
+        writer, sheet_name='Sheet1', index=False, startcol=0, startrow=couple.shape[0]+3)
+
+    worksheet.merge_range(couple.shape[0]+2, 0, couple.shape[0]+2, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
     
+    dangerous.to_excel(
+        writer, sheet_name='Sheet1', index=False, startcol=0, startrow=compound.shape[0]+4) #موارد خطرناک در هر یک از زوجین
+
+    worksheet.merge_range(compound.shape[0]+3, 0, compound.shape[0]+3, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
+    
+
+    writer.save()
+
 
 if __name__ == "__main__":
     main()
