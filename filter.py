@@ -56,11 +56,19 @@ def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
     df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
     df = df[~(df['CLNSIG'].str.contains('Benign', case=False))]
 
+    df = df[((df['ValueInfo2'].str.split(':').str[0] == '0/1') 
+        | (df['ValueInfo2'].str.split(':').str[0] == '1/1')) 
+        & (df['ValueInfo2'].str.split(':').str[1].str.split(',').str[1].astype(int) > 7)]
+
+    # Insert parent column
+    zygosity_index = df.columns.get_loc('Zygosity')
+    df.insert(zygosity_index, 'Parent', parent)
+
     return df
 
 
 
-# Read csv file and filter using  `filter_using_parent`
+# Read csv file and filter using `filter_using_parent`
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     columns = generate_column_names(path)
     # if any excess columns occur, get the columns til the defiend amount
@@ -87,9 +95,11 @@ def main():
     
     # Concactinate datasets
     df_merged = pd.concat([df_mother, df_father])
+    df_path_merged = pd.concat([df_mother_path, df_father_path])
 
     # Sort by Gene.refGene
     df = df_merged.sort_values('Gene.refGene')
+    df_path = df_path_merged.sort_values('Gene.refGene')
 
     # Columns that need to be matched
     match_columns = ["Het Iranome", "Hom Iranome", "Het Our DB", "Chr", "Start",
@@ -104,17 +114,27 @@ def main():
     couple = df[((df.duplicated(subset=match_columns, keep=False))
                  & (df['Parent'] != df['Parent'].shift(1)))]
 
-    # compound gene
+    # Compound gene
     compound = df[(df.duplicated(subset=['Gene.refGene'], keep=False))]
 
     # Dangerous gene
     dangerous = df[(df[exception_columns].isin(gene_exceptions))]
+
+    # Couple path
+    couple_path = df_path[((df.duplicated(subset=match_columns, keep=False))
+                 & (df_path['Parent'] != df_path['Parent'].shift(1)))]
+
+    # Not shared path
+    not_shared_path = df_path[~((df.duplicated(subset=match_columns, keep=False))
+                 & (df_path['Parent'] != df_path['Parent'].shift(1)))]
 
     print('Writing xlsx file ...')
 
     writer = pd.ExcelWriter(args.output, engine='xlsxwriter')
     couple.to_excel(writer, sheet_name='Sheet1',
                     index=False, startcol=0, startrow=1)
+    couple_path.to_excel(writer, sheet_name='Sheet1', index=False, startcol=0, startrow=couple.shape[0]+3)
+
     worksheet = writer.sheets['Sheet1']
     workbook  = writer.book
 
@@ -128,7 +148,7 @@ def main():
     worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در زوج', merge_format)
 
     compound.to_excel(
-        writer, sheet_name='Sheet1', index=False, startcol=0, startrow=couple.shape[0]+3)
+        writer, sheet_name='Sheet1', index=False, startcol=0, startrow=couple.shape[0]+3+couple_path.shape[0])
 
     worksheet.merge_range(couple.shape[0]+2, 0, couple.shape[0]+2, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
     
@@ -137,6 +157,10 @@ def main():
 
     worksheet.merge_range(compound.shape[0]+3, 0, compound.shape[0]+3, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
     
+    not_shared_path.to_excel(writer, sheet_name='Sheet1', index=False, startcol=0, startrow=dangerous[0]+4)
+    worksheet.merge_range(dangerous.shape[0]+3, 0, dangerous.shape[0]+3, 3, 'موارد پاتوژن غیرمشترک', merge_format)
+    
+
 
     writer.save()
 
