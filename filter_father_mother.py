@@ -99,6 +99,7 @@ def main():
 
     # Sort by Gene.refGene
     df = df_merged.sort_values('Gene.refGene')
+
     df_path = df_path_merged.sort_values('Gene.refGene')
 
     # Columns that need to be matched
@@ -107,33 +108,43 @@ def main():
 
     gene_exceptions = ['frameshift insertion',
                        'frameshift deletion', 'stopgain', 'stoploss', 'splice']
-    exception_columns = ['ExonicFunc.refGene', 'ExonicFunc.ensGene',
-                         'ExonicFunc.knownGene', 'Func.refGene', 'Function_description']
 
     # Couple output
-    couple = df[((df.duplicated(subset=match_columns, keep=False))
-                 & (df['Parent'] != df['Parent'].shift(1)))]
+    couple = df[((df.duplicated(subset=match_columns, keep=False)) & (df['Parent'] != df['Parent'].shift(1)))]
 
     # Compound gene
     compound = df[(df.duplicated(subset=['Gene.refGene'], keep=False))]
 
     # Dangerous gene
-    dangerous = df[(df[exception_columns].isin(gene_exceptions))]
+    dangerous = df[(df['ExonicFunc.refGene'].isin(gene_exceptions))
+                  |(df['ExonicFunc.ensGene'].isin(gene_exceptions))
+                  |(df['ExonicFunc.knownGene'].isin(gene_exceptions))
+                  |(df['Func.refGene'].isin(gene_exceptions))
+                  |(df['Function_description'].isin(gene_exceptions))]
 
     # Couple path
-    couple_path = df_path[((df.duplicated(subset=match_columns, keep=False))
-                 & (df_path['Parent'] != df_path['Parent'].shift(1)))]
+    couple_path = df_path[((df_path.duplicated(subset=match_columns, keep=False)) & (df_path['Parent'] != df_path['Parent'].shift(1)))]
 
     # Not shared path
-    not_shared_path = df_path[~((df.duplicated(subset=match_columns, keep=False))
-                 & (df_path['Parent'] != df_path['Parent'].shift(1)))]
+    not_shared_path = df_path[~((df_path.duplicated(subset=match_columns, keep=False)) & (df_path['Parent'] != df_path['Parent'].shift(1)))]
 
-    print('Writing xlsx file ...')
+    # For check in mother
+    mother_hom_check = df_mother_path[(df_mother_path['Zygosity'] == 'hom')]
+    
+    # For check in father
+    father_hom_check = df_father_path[(df_father_path['Zygosity'] == 'hom')]
+    
 
+    print('Writing xlsx ...')
+
+    current_row = 1
     writer = pd.ExcelWriter(args.output, engine='xlsxwriter')
-    couple.to_excel(writer, sheet_name='Sheet1',
-                    index=False, startcol=0, startrow=1)
-    couple_path.to_excel(writer, sheet_name='Sheet1', index=False, startcol=0, startrow=couple.shape[0]+3)
+    
+    couple.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1, startcol=0)
+    current_row += couple.shape[0]
+
+    couple_path.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1, startcol=0)
+    current_row += couple_path.shape[0]
 
     worksheet = writer.sheets['Sheet1']
     workbook  = writer.book
@@ -146,20 +157,39 @@ def main():
     })
 
     worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در زوج', merge_format)
+    current_row += 1
 
-    compound.to_excel(
-        writer, sheet_name='Sheet1', index=False, startcol=0, startrow=couple.shape[0]+3+couple_path.shape[0])
+    worksheet.merge_range(current_row+1, 0, current_row+1, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
+    current_row += 1
+    compound.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+    current_row += compound.shape[0]
+    current_row += 1
 
-    worksheet.merge_range(couple.shape[0]+2, 0, couple.shape[0]+2, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
-    
-    dangerous.to_excel(
-        writer, sheet_name='Sheet1', index=False, startcol=0, startrow=compound.shape[0]+4) #موارد خطرناک در هر یک از زوجین
 
-    worksheet.merge_range(compound.shape[0]+3, 0, compound.shape[0]+3, 3, 'ژن مشترک برای احتمال کامپوند', merge_format)
-    
-    not_shared_path.to_excel(writer, sheet_name='Sheet1', index=False, startcol=0, startrow=dangerous[0]+4)
-    worksheet.merge_range(dangerous.shape[0]+3, 0, dangerous.shape[0]+3, 3, 'موارد پاتوژن غیرمشترک', merge_format)
-    
+    worksheet.merge_range(current_row+1, 0, current_row+1, 3, 'موارد خطرناک در هر یک از زوجین', merge_format)
+    current_row += 1
+    dangerous.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+    current_row += dangerous.shape[0]
+    current_row += 1
+
+
+    worksheet.merge_range(current_row+1, 0, current_row+1, 3, 'موارد پاتوژن غیرمشترک', merge_format)
+    current_row += 1
+    not_shared_path.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+    current_row += not_shared_path.shape[0]
+    current_row += 1
+
+    worksheet.merge_range(current_row+1, 0, current_row+1, 3, 'برای بررسی در پدر', merge_format)
+    current_row += 1
+    father_hom_check.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+    current_row += father_hom_check.shape[0]
+    current_row += 1
+
+    worksheet.merge_range(current_row+1, 0, current_row+1, 3, 'برای بررسی در مادر', merge_format)
+    current_row += 1
+    mother_hom_check.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+    current_row += mother_hom_check.shape[0]
+    current_row += 1
 
 
     writer.save()
