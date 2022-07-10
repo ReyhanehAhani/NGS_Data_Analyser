@@ -66,6 +66,9 @@ def read_and_filter_dataset(path: str, parent: str):
 def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_path_using_parent(pd.read_csv(path), parent)
 
+def has_father_mother(row): 
+    parents = row['Parent'].values
+    return (('mother' in parents) and ('father' in parents) and (row['Parent'].size == 2))
 
 def main():
     # Read datasets
@@ -101,8 +104,7 @@ def main():
                     'frameshift deletion', 'stopgain', 'stoploss', 'spliceosome', 'splice']
 
     # Couple output
-    couple = df[(df.duplicated(subset=match_columns, keep=False)) & (
-        (df['Parent'] != df['Parent'].shift(1)) | (df['Parent'] != df['Parent'].shift(-1)))]
+    couple = df.groupby(match_columns)[df.columns].filter(has_father_mother)
 
     # Compound gene
     compound = df[(df.duplicated(subset=['Gene.refGene'], keep=False))]
@@ -115,8 +117,7 @@ def main():
                    | (df['Function_description'].isin(gene_exceptions))]
 
     # Couple path
-    couple_path = df_path[(df_path.duplicated(subset=match_columns, keep=False)) & (
-        (df_path['Parent'] != df_path['Parent'].shift(1)) | (df_path['Parent'] != df_path['Parent'].shift(-1)))]
+    couple_path = df_path.groupby(match_columns)[df_path.columns].filter(has_father_mother)
 
     # Not shared path
     not_shared_path = df_path[~(df_path.duplicated(

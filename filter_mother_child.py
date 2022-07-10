@@ -12,6 +12,7 @@ parser.add_argument('output', type=str, help='path for output xlsx file',
                     const=1, nargs='?', default='mother_child/output.xlsx')
 args = parser.parse_args()
 
+
 def filter_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
     # Keep Hom Iranome if it's NaN or 0
     df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
@@ -40,6 +41,13 @@ def filter_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_using_parent(pd.read_csv(path), parent)
 
+def has_mother_child(row): 
+    parents = row['Parent'].values
+    if (('child' in parents) and ('mother' in parents) and (row['Parent'].size == 2)):
+        if row[row['Parent'] == 'mother']['Zygosity'].str.contains('het').bool():
+            if row[row['Parent'] == 'child']['Zygosity'].str.contains('hom').bool():
+                return True
+    return False
 
 def main():
     df_child = read_and_filter_dataset(args.child, 'child')
@@ -53,12 +61,7 @@ def main():
 
     match_columns = ["Chr", "Start", "End", "Ref", "Alt", "Gene.refGene"]
 
-    '''
-    TODO: HET has problem
-    '''
-    
-    common_mother_child = df[(df.duplicated(subset=match_columns, keep=False)) & ((df['Parent'] != df['Parent'].shift(1)) | (df['Parent'] != df['Parent'].shift(-1)))
-        & (((df['Parent'] == 'mother') & (df['Zygosity'] == 'het')) | ((df['Parent'] == 'child') & (df['Zygosity'] == 'hom')))]
+    common_mother_child = df.groupby(match_columns)[df.columns].filter(has_mother_child)
 
     not_common_child = df[(df.duplicated(subset=['Gene.refGene'])) & (df['Parent'] == 'child')]
 
