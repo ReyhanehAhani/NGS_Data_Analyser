@@ -6,10 +6,18 @@ import io
 parser = argparse.ArgumentParser(description='Process csv gene files')
 parser.add_argument('mother', type=str, help='path for mother csv file',
                     const=1, nargs='?', default='father_mother_child/filtered_MOT18842_2.csv')
-parser.add_argument('father', type=str, help='path for mother csv file',
+parser.add_argument('father', type=str, help='path for father csv file',
                     const=1, nargs='?', default='father_mother_child/filtered_MOT18839_2.csv')
 parser.add_argument('child', type=str, help='path for child csv file',
                     const=1, nargs='?', default='father_mother_child/filtered_MOT18847_3.csv')
+
+parser.add_argument('mother_path', type=str, help='path for mother path csv file',
+                    const=1, nargs='?', default='father_mother_child/filtered_MOT18842_path_3.csv')
+parser.add_argument('father_path', type=str, help='path for father path csv file',
+                    const=1, nargs='?', default='father_mother_child/filtered_MOT18839_path_3.csv')
+parser.add_argument('child_path', type=str, help='path for child path csv file',
+                    const=1, nargs='?', default='father_mother_child/filtered_MOT18847_path_3.csv')
+
 parser.add_argument('output', type=str, help='path for output xlsx file',
                     const=1, nargs='?', default='father_mother_child/output.xlsx')
 args = parser.parse_args()
@@ -38,10 +46,27 @@ def filter_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
 
     return df
 
+def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
+    # Keep Hom Iranome if it's NaN or 0
+    df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
+    df = df[~(df['CLNSIG'].str.contains('Benign', case=False))]
+
+    df = df[((df['ValueInfo2'].str.split(':').str[0] == '0/1')
+             | (df['ValueInfo2'].str.split(':').str[0] == '1/1'))
+            & (df['ValueInfo2'].str.split(':').str[1].str.split(',').str[1].astype(int) > 7)]
+
+    # Insert parent column
+    zygosity_index = df.columns.get_loc('Zygosity')
+    df.insert(zygosity_index, 'Parent', parent)
+
+    return df
 
 # Read csv file and filter using `filter_using_parent`
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_using_parent(pd.read_csv(path), parent)
+
+def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
+    return filter_path_using_parent(pd.read_csv(path), parent)
 
 def has_father_mother_child(row): 
     row = row.sort_values('Parent')    
@@ -52,15 +77,29 @@ def main():
     df_mother = read_and_filter_dataset(args.mother, 'mother')
     df_father = read_and_filter_dataset(args.father, 'father')
 
+    df_child_path = read_and_filter_path_dataset(args.child_path, 'child')
+    df_mother_path = read_and_filter_path_dataset(args.mother_path, 'mother')
+    df_father_path = read_and_filter_path_dataset(args.father_path, 'father')
+
     df_mother.reset_index(drop=True, inplace=True)
     df_father.reset_index(drop=True, inplace=True)
     df_child.reset_index(drop=True, inplace=True)
 
+    df_mother_path.reset_index(drop=True, inplace=True)
+    df_father_path.reset_index(drop=True, inplace=True)
+    df_child_path.reset_index(drop=True, inplace=True)
+
     df = pd.concat([df_father, df_mother, df_child])
     df = df.sort_values(['Gene.refGene'])
 
+    df_path = pd.concat([df_father_path, df_mother_path, df_child_path])
+    df_path = df_path.sort_values(['Gene.refGene'])
+
     shared_gene = df.groupby('Gene.refGene')[df.columns].filter(has_father_mother_child)
     not_shared_gene = df[(df.duplicated(subset=['Gene.refGene'])) & (df['Parent'] == 'child')]
+
+    shared_gene_path = df_path.groupby('Gene.refGene')[df_path.columns].filter(has_father_mother_child)
+    not_shared_gene_path = df_path[(df_path.duplicated(subset=['Gene.refGene'])) & (df_path['Parent'] == 'child')]
 
     print('Writing xlsx ...')
     current_row = 1
@@ -69,6 +108,10 @@ def main():
     shared_gene.to_excel(writer, sheet_name='Sheet1', index=False,
                     startrow=current_row, startcol=0)
     current_row += shared_gene.shape[0]
+
+    shared_gene_path.to_excel(writer, sheet_name='Sheet1', index=False,
+                    startrow=current_row+1, startcol=0)
+    current_row += shared_gene_path.shape[0]
 
     worksheet = writer.sheets['Sheet1']
     workbook = writer.book
@@ -91,6 +134,11 @@ def main():
     not_shared_gene.to_excel(writer, sheet_name='Sheet1',
                       index=False, startrow=current_row+1)
     current_row += not_shared_gene.shape[0]
+    current_row += 1
+
+    not_shared_gene_path.to_excel(writer, sheet_name='Sheet1',
+                      index=False, startrow=current_row+1)
+    current_row += not_shared_gene_path.shape[0]
     current_row += 1
 
     writer.save()

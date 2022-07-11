@@ -5,13 +5,13 @@ import io
 
 parser = argparse.ArgumentParser(description='Process csv gene files')
 parser.add_argument('mother', type=str, help='path for mother csv file',
-                    const=1, nargs='?', default='mother_child/filtered_MOT17517_3.csv')
-parser.add_argument('child', type=str, help='path for child csv file',
                     const=1, nargs='?', default='mother_child/filtered_MOT19305_2.csv')
+parser.add_argument('child', type=str, help='path for child csv file',
+                    const=1, nargs='?', default='mother_child/filtered_MOT17517_3.csv')
 parser.add_argument('mother_path', type=str, help='path for mother csv file',
-                    const=1, nargs='?', default='mother_child/filtered_MOT17517_path_3.csv')
-parser.add_argument('child_path', type=str, help='path for child csv file',
                     const=1, nargs='?', default='mother_child/filtered_MOT19305_path_3.csv')
+parser.add_argument('child_path', type=str, help='path for child csv file',
+                    const=1, nargs='?', default='mother_child/filtered_MOT17517_path_3.csv')
 parser.add_argument('output', type=str, help='path for output xlsx file',
                     const=1, nargs='?', default='mother_child/output.xlsx')
 args = parser.parse_args()
@@ -40,6 +40,7 @@ def filter_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
 
     return df
 
+
 def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
     # Keep Hom Iranome if it's NaN or 0
     df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
@@ -56,22 +57,25 @@ def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
     return df
 
 # Read csv file and filter using `filter_using_parent`
+
+
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_using_parent(pd.read_csv(path), parent)
 
-def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    print(df)
-    return filter_path_using_parent(df, parent)
 
-def has_mother_child(row): 
-    row = row.sort_values('Parent')    
+def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
+    return filter_path_using_parent(pd.read_csv(path), parent)
+
+
+def has_mother_child(row):
+    row = row.sort_values('Parent')
     return (tuple(row['Parent'].values) == ('child', 'mother')) and (tuple(row['Zygosity'].values) == ('hom', 'het'))
+
 
 def main():
     df_child = read_and_filter_dataset(args.child, 'child')
     df_mother = read_and_filter_dataset(args.mother, 'mother')
-    
+
     df_child_path = read_and_filter_path_dataset(args.child_path, 'child')
     df_mother_path = read_and_filter_path_dataset(args.mother_path, 'mother')
 
@@ -85,21 +89,32 @@ def main():
 
     df_path = pd.concat([df_mother_path, df_child_path])
     df_path = df_path.sort_values('Gene.refGene')
-    df_path.to_csv('output.csv')
 
     match_columns = ["Chr", "Start", "End", "Ref", "Alt", "Gene.refGene"]
 
-    common_mother_child = df.groupby(match_columns)[df.columns].filter(has_mother_child)
+    common_mother_child = df.groupby(match_columns)[
+        df.columns].filter(has_mother_child)
+    not_common_child = df[(df.duplicated(subset=['Gene.refGene'])) & (
+        df['Parent'] == 'child')]
 
-    not_common_child = df[(df.duplicated(subset=['Gene.refGene'])) & (df['Parent'] == 'child')]
+    common_mother_child_path = df_path.groupby(
+        match_columns)[df_path.columns].filter(has_mother_child)
+    not_common_child_path = df_path[(df_path.duplicated(subset=['Gene.refGene'])) & (
+        df_path['Parent'] == 'child')]
+    
 
     print('Writing xlsx ...')
+
     current_row = 1
     writer = pd.ExcelWriter(args.output, engine='xlsxwriter')
 
     common_mother_child.to_excel(writer, sheet_name='Sheet1', index=False,
-                    startrow=current_row, startcol=0)
+                                 startrow=current_row, startcol=0)
     current_row += common_mother_child.shape[0]
+
+    common_mother_child_path.to_excel(writer, sheet_name='Sheet1',
+                                      index=False, startrow=current_row+1)
+    current_row += not_common_child.shape[0]
 
     worksheet = writer.sheets['Sheet1']
     workbook = writer.book
@@ -113,15 +128,21 @@ def main():
         'font_size': 16
     })
 
-    worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در مادر و فرزند', merge_format)
+    worksheet.merge_range(
+        0, 0, 0, 3, 'موارد مشترک در مادر و فرزند', merge_format)
     current_row += 1
 
     worksheet.merge_range(current_row+1, 0, current_row+1,
                           3, 'موارد غیرمشترک در فرزند (‌فقط فرزند)', merge_format)
     current_row += 1
     not_common_child.to_excel(writer, sheet_name='Sheet1',
-                      index=False, startrow=current_row+1)
+                              index=False, startrow=current_row+1)
     current_row += not_common_child.shape[0]
+    current_row += 1
+
+    not_common_child_path.to_excel(writer, sheet_name='Sheet1',
+                              index=False, startrow=current_row+1)
+    current_row += not_common_child_path.shape[0]
     current_row += 1
 
     writer.save()
