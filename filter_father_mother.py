@@ -67,8 +67,8 @@ def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_path_using_parent(pd.read_csv(path), parent)
 
 def has_father_mother(row): 
-    parents = row['Parent'].values
-    return (('mother' in parents) and ('father' in parents) and (row['Parent'].size == 2))
+    row = row.sort_values('Parent')    
+    return (tuple(row['Parent'].values) == ('father', 'mother'))
 
 def main():
     # Read datasets

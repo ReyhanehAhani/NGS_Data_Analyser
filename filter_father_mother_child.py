@@ -44,8 +44,8 @@ def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_using_parent(pd.read_csv(path), parent)
 
 def has_father_mother_child(row): 
-    parents = row['Parent'].values
-    return (('child' in parents) and ('mother' in parents) and ('father' in parents) and (row['Parent'].size == 3))
+    row = row.sort_values('Parent')    
+    return (tuple(row['Parent'].values) == ('child', 'father', 'mother')) and (tuple(row['Zygosity'].values) == ('hom', 'het', 'het'))
 
 def main():
     df_child = read_and_filter_dataset(args.child, 'child')
@@ -59,8 +59,41 @@ def main():
     df = pd.concat([df_father, df_mother, df_child])
     df = df.sort_values(['Gene.refGene'])
 
-    df.groupby('Gene.refGene')[df.columns].filter(has_father_mother_child).to_csv('output.csv')
-    
+    shared_gene = df.groupby('Gene.refGene')[df.columns].filter(has_father_mother_child)
+    not_shared_gene = df[(df.duplicated(subset=['Gene.refGene'])) & (df['Parent'] == 'child')]
+
+    print('Writing xlsx ...')
+    current_row = 1
+    writer = pd.ExcelWriter(args.output, engine='xlsxwriter')
+
+    shared_gene.to_excel(writer, sheet_name='Sheet1', index=False,
+                    startrow=current_row, startcol=0)
+    current_row += shared_gene.shape[0]
+
+    worksheet = writer.sheets['Sheet1']
+    workbook = writer.book
+
+    merge_format = workbook.add_format({
+        'bold':     True,
+        'align':    'center',
+        'valign':   'vcenter',
+        'fg_color': 'black',
+        'font_color': 'white',
+        'font_size': 16
+    })
+
+    worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در پدر و مادر و فرزند', merge_format)
+    current_row += 1
+
+    worksheet.merge_range(current_row+1, 0, current_row+1,
+                          3, 'موارد غیرمشترک در فرزند (‌فقط فرزند)', merge_format)
+    current_row += 1
+    not_shared_gene.to_excel(writer, sheet_name='Sheet1',
+                      index=False, startrow=current_row+1)
+    current_row += not_shared_gene.shape[0]
+    current_row += 1
+
+    writer.save()
 
 if __name__ == "__main__":
     main()

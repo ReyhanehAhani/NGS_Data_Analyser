@@ -8,6 +8,10 @@ parser.add_argument('mother', type=str, help='path for mother csv file',
                     const=1, nargs='?', default='mother_child/filtered_MOT17517_3.csv')
 parser.add_argument('child', type=str, help='path for child csv file',
                     const=1, nargs='?', default='mother_child/filtered_MOT19305_2.csv')
+parser.add_argument('mother_path', type=str, help='path for mother csv file',
+                    const=1, nargs='?', default='mother_child/filtered_MOT17517_path_3.csv')
+parser.add_argument('child_path', type=str, help='path for child csv file',
+                    const=1, nargs='?', default='mother_child/filtered_MOT19305_path_3.csv')
 parser.add_argument('output', type=str, help='path for output xlsx file',
                     const=1, nargs='?', default='mother_child/output.xlsx')
 args = parser.parse_args()
@@ -36,28 +40,52 @@ def filter_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
 
     return df
 
+def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
+    # Keep Hom Iranome if it's NaN or 0
+    df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
+    df = df[~(df['CLNSIG'].str.contains('Benign', case=False))]
+
+    df = df[((df['ValueInfo2'].str.split(':').str[0] == '0/1')
+             | (df['ValueInfo2'].str.split(':').str[0] == '1/1'))
+            & (df['ValueInfo2'].str.split(':').str[1].str.split(',').str[1].astype(int) > 7)]
+
+    # Insert parent column
+    zygosity_index = df.columns.get_loc('Zygosity')
+    df.insert(zygosity_index, 'Parent', parent)
+
+    return df
 
 # Read csv file and filter using `filter_using_parent`
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
     return filter_using_parent(pd.read_csv(path), parent)
 
+def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    print(df)
+    return filter_path_using_parent(df, parent)
+
 def has_mother_child(row): 
-    parents = row['Parent'].values
-    if (('child' in parents) and ('mother' in parents) and (row['Parent'].size == 2)):
-        if row[row['Parent'] == 'mother']['Zygosity'].str.contains('het').bool():
-            if row[row['Parent'] == 'child']['Zygosity'].str.contains('hom').bool():
-                return True
-    return False
+    row = row.sort_values('Parent')    
+    return (tuple(row['Parent'].values) == ('child', 'mother')) and (tuple(row['Zygosity'].values) == ('hom', 'het'))
 
 def main():
     df_child = read_and_filter_dataset(args.child, 'child')
     df_mother = read_and_filter_dataset(args.mother, 'mother')
+    
+    df_child_path = read_and_filter_path_dataset(args.child_path, 'child')
+    df_mother_path = read_and_filter_path_dataset(args.mother_path, 'mother')
 
     df_mother.reset_index(drop=True, inplace=True)
     df_child.reset_index(drop=True, inplace=True)
+    df_child_path.reset_index(drop=True, inplace=True)
+    df_mother_path.reset_index(drop=True, inplace=True)
 
     df = pd.concat([df_mother, df_child])
     df = df.sort_values('Gene.refGene')
+
+    df_path = pd.concat([df_mother_path, df_child_path])
+    df_path = df_path.sort_values('Gene.refGene')
+    df_path.to_csv('output.csv')
 
     match_columns = ["Chr", "Start", "End", "Ref", "Alt", "Gene.refGene"]
 
