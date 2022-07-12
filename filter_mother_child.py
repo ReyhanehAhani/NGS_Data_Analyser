@@ -71,6 +71,9 @@ def has_mother_child(row):
     row = row.sort_values('Parent')
     return (tuple(row['Parent'].values) == ('child', 'mother')) and (tuple(row['Zygosity'].values) == ('hom', 'het'))
 
+def not_shared_mother_child(row): 
+    row = row.sort_values('Parent')
+    return 'mother' not in row['Parent'].values
 
 def main():
     df_child = read_and_filter_dataset(args.child, 'child')
@@ -92,15 +95,10 @@ def main():
 
     match_columns = ["Chr", "Start", "End", "Ref", "Alt", "Gene.refGene"]
 
-    common_mother_child = df.groupby(match_columns)[
-        df.columns].filter(has_mother_child)
-    not_common_child = df[(df.duplicated(subset=['Gene.refGene'])) & (
-        df['Parent'] == 'child')]
-
-    common_mother_child_path = df_path.groupby(
-        match_columns)[df_path.columns].filter(has_mother_child)
-    not_common_child_path = df_path[(df_path.duplicated(subset=['Gene.refGene'])) & (
-        df_path['Parent'] == 'child')]
+    common_mother_child = df.groupby(match_columns)[df.columns].filter(has_mother_child)
+    common_mother_child_path = df_path.groupby(match_columns)[df_path.columns].filter(has_mother_child)
+    not_common_child = df.groupby('Gene.refGene')[df.columns].filter(not_shared_mother_child)
+    not_common_child_path = df_path.groupby('Gene.refGene')[df_path.columns].filter(not_shared_mother_child)
     
 
     print('Writing xlsx ...')
@@ -113,7 +111,7 @@ def main():
     current_row += common_mother_child.shape[0]
 
     common_mother_child_path.to_excel(writer, sheet_name='Sheet1',
-                                      index=False, startrow=current_row+1)
+                                      index=False, startrow=current_row, header=False)
     current_row += not_common_child.shape[0]
 
     worksheet = writer.sheets['Sheet1']
@@ -132,16 +130,16 @@ def main():
         0, 0, 0, 3, 'موارد مشترک در مادر و فرزند', merge_format)
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'موارد غیرمشترک در فرزند (‌فقط فرزند)', merge_format)
     current_row += 1
     not_common_child.to_excel(writer, sheet_name='Sheet1',
-                              index=False, startrow=current_row+1)
+                              index=False, startrow=current_row, header=False)
     current_row += not_common_child.shape[0]
     current_row += 1
 
     not_common_child_path.to_excel(writer, sheet_name='Sheet1',
-                              index=False, startrow=current_row+1)
+                              index=False, startrow=current_row, header=False)
     current_row += not_common_child_path.shape[0]
     current_row += 1
 

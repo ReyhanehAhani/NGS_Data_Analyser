@@ -68,7 +68,8 @@ def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
 
 def has_father_mother(row): 
     row = row.sort_values('Parent')    
-    return (tuple(row['Parent'].values) == ('father', 'mother'))
+    parents = tuple(row['Parent'].values)
+    return ('mother' in parents) and ('father' in parents)
 
 def main():
     # Read datasets
@@ -101,7 +102,7 @@ def main():
                      "End", "Ref", "Alt", "Zygosity", "Gene.refGene", "ExonicFunc.refGene"]
 
     gene_exceptions = ['frameshift insertion',
-                    'frameshift deletion', 'stopgain', 'stoploss', 'spliceosome', 'splice']
+                    'frameshift deletion', 'stopgain', 'stoploss', 'splicing']
 
     # Couple output
     couple = df.groupby(match_columns)[df.columns].filter(has_father_mother)
@@ -135,11 +136,11 @@ def main():
     writer = pd.ExcelWriter(args.output, engine='xlsxwriter')
 
     couple.to_excel(writer, sheet_name='Sheet1', index=False,
-                    startrow=current_row+1, startcol=0)
+                    startrow=current_row, startcol=0)
     current_row += couple.shape[0]
 
-    couple_path.to_excel(writer, sheet_name='Sheet1',
-                         index=False, startrow=current_row+1, startcol=0)
+    couple_path.to_excel(writer, sheet_name='Sheet1', header=False,
+                         index=False, startrow=current_row, startcol=0)
     current_row += couple_path.shape[0]
 
     worksheet = writer.sheets['Sheet1']
@@ -157,43 +158,43 @@ def main():
     worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در زوج', merge_format)
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'ژن مشترک برای احتمال کامپوند', merge_format)
     current_row += 1
-    compound.to_excel(writer, sheet_name='Sheet1',
-                      index=False, startrow=current_row+1)
+    compound.to_excel(writer, sheet_name='Sheet1', header=False,
+                      index=False, startrow=current_row)
     current_row += compound.shape[0]
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'موارد خطرناک در هر یک از زوجین', merge_format)
     current_row += 1
-    dangerous.to_excel(writer, sheet_name='Sheet1',
-                       index=False, startrow=current_row+1)
+    dangerous.to_excel(writer, sheet_name='Sheet1', header=False,
+                       index=False, startrow=current_row)
     current_row += dangerous.shape[0]
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'موارد پاتوژن غیرمشترک', merge_format)
     current_row += 1
-    not_shared_path.to_excel(writer, sheet_name='Sheet1',
-                             index=False, startrow=current_row+1)
+    not_shared_path.to_excel(writer, sheet_name='Sheet1',  header=False,
+                             index=False, startrow=current_row)
     current_row += not_shared_path.shape[0]
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'برای بررسی در پدر', merge_format)
     current_row += 1
     father_hom_check.to_excel(
-        writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+        writer, sheet_name='Sheet1', index=False,  header=False, startrow=current_row)
     current_row += father_hom_check.shape[0]
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'برای بررسی در مادر', merge_format)
     current_row += 1
     mother_hom_check.to_excel(
-        writer, sheet_name='Sheet1', index=False, startrow=current_row+1)
+        writer, sheet_name='Sheet1', index=False,  header=False, startrow=current_row)
     current_row += mother_hom_check.shape[0]
     current_row += 1
 

@@ -70,7 +70,26 @@ def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
 
 def has_father_mother_child(row): 
     row = row.sort_values('Parent')    
-    return (tuple(row['Parent'].values) == ('child', 'father', 'mother')) and (tuple(row['Zygosity'].values) == ('hom', 'het', 'het'))
+    zygosity = tuple(row['Zygosity'].values)
+    parents = tuple(row['Parent'].values)
+
+
+    if ('child' in parents and (('father' in parents) or ('mother' in parents))):
+        if zygosity[0] == 'hom' and zygosity[1] == 'het':
+            if len(zygosity) > 2: 
+                if zygosity[2] == 'het': 
+                    return True
+                else:
+                    False
+            return True
+    
+    return False
+
+
+def not_shared_father_mother_child(row): 
+    row = row.sort_values('Parent')
+    return ('father' not in row['Parent'].values) and ('mother' not in row['Parent'].values)
+
 
 def main():
     df_child = read_and_filter_dataset(args.child, 'child')
@@ -96,10 +115,10 @@ def main():
     df_path = df_path.sort_values(['Gene.refGene'])
 
     shared_gene = df.groupby('Gene.refGene')[df.columns].filter(has_father_mother_child)
-    not_shared_gene = df[(df.duplicated(subset=['Gene.refGene'])) & (df['Parent'] == 'child')]
-
     shared_gene_path = df_path.groupby('Gene.refGene')[df_path.columns].filter(has_father_mother_child)
-    not_shared_gene_path = df_path[(df_path.duplicated(subset=['Gene.refGene'])) & (df_path['Parent'] == 'child')]
+
+    not_shared_gene = df.groupby('Gene.refGene')[df.columns].filter(not_shared_father_mother_child)
+    not_shared_gene_path = df_path.groupby('Gene.refGene')[df_path.columns].filter(not_shared_father_mother_child)
 
     print('Writing xlsx ...')
     current_row = 1
@@ -109,7 +128,7 @@ def main():
                     startrow=current_row, startcol=0)
     current_row += shared_gene.shape[0]
 
-    shared_gene_path.to_excel(writer, sheet_name='Sheet1', index=False,
+    shared_gene_path.to_excel(writer, sheet_name='Sheet1', index=False, header=False,
                     startrow=current_row+1, startcol=0)
     current_row += shared_gene_path.shape[0]
 
@@ -128,18 +147,17 @@ def main():
     worksheet.merge_range(0, 0, 0, 3, 'موارد مشترک در پدر و مادر و فرزند', merge_format)
     current_row += 1
 
-    worksheet.merge_range(current_row+1, 0, current_row+1,
+    worksheet.merge_range(current_row, 0, current_row,
                           3, 'موارد غیرمشترک در فرزند (‌فقط فرزند)', merge_format)
     current_row += 1
+
     not_shared_gene.to_excel(writer, sheet_name='Sheet1',
-                      index=False, startrow=current_row+1)
+                      index=False, startrow=current_row,  header=False)
     current_row += not_shared_gene.shape[0]
-    current_row += 1
 
     not_shared_gene_path.to_excel(writer, sheet_name='Sheet1',
-                      index=False, startrow=current_row+1)
+                      index=False, startrow=current_row,  header=False)
     current_row += not_shared_gene_path.shape[0]
-    current_row += 1
 
     writer.save()
 
