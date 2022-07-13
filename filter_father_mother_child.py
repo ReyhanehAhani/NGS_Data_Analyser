@@ -4,22 +4,13 @@ from typing import List
 import io
 
 parser = argparse.ArgumentParser(description='Process csv gene files')
-parser.add_argument('mother', type=str, help='path for mother csv file',
-                    const=1, nargs='?', default='father_mother_child/filtered_MOT18842_2.csv')
-parser.add_argument('father', type=str, help='path for father csv file',
-                    const=1, nargs='?', default='father_mother_child/filtered_MOT18839_2.csv')
-parser.add_argument('child', type=str, help='path for child csv file',
-                    const=1, nargs='?', default='father_mother_child/filtered_MOT18847_3.csv')
-
-parser.add_argument('mother_path', type=str, help='path for mother path csv file',
-                    const=1, nargs='?', default='father_mother_child/filtered_MOT18842_path_3.csv')
-parser.add_argument('father_path', type=str, help='path for father path csv file',
-                    const=1, nargs='?', default='father_mother_child/filtered_MOT18839_path_3.csv')
-parser.add_argument('child_path', type=str, help='path for child path csv file',
-                    const=1, nargs='?', default='father_mother_child/filtered_MOT18847_path_3.csv')
-
-parser.add_argument('output', type=str, help='path for output xlsx file',
-                    const=1, nargs='?', default='father_mother_child/output.xlsx')
+parser.add_argument('mother', type=str, help='path for mother csv file')
+parser.add_argument('father', type=str, help='path for father csv file')
+parser.add_argument('child', type=str, help='path for child csv file')
+parser.add_argument('mother_path', type=str, help='path for mother path csv file')
+parser.add_argument('father_path', type=str, help='path for father path csv file')
+parser.add_argument('child_path', type=str, help='path for child path csv file')
+parser.add_argument('output', type=str, help='path for output xlsx file')
 args = parser.parse_args()
 
 
