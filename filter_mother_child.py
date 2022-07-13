@@ -55,11 +55,25 @@ def filter_path_using_parent(df: pd.DataFrame, parent: str) -> pd.DataFrame:
 
 
 def read_and_filter_dataset(path: str, parent: str) -> pd.DataFrame:
-    return filter_using_parent(pd.read_csv(path), parent)
+    try:
+        df = pd.read_csv(path)
+    except:
+        print('Warning: File has contains bad lines, Some data might get corrupted!')
+        df = pd.read_csv(path, engine='python', on_bad_lines=lambda x: x[:273])
+        df = df.shift(2, axis='columns').fillna('.')
+
+    return filter_using_parent(df, parent)
 
 
 def read_and_filter_path_dataset(path: str, parent: str) -> pd.DataFrame:
-    return filter_path_using_parent(pd.read_csv(path), parent)
+    try:
+        df = pd.read_csv(path)
+    except:
+        print('Warning: File contains bad lines, Some data might get corrupted!')
+        df = pd.read_csv(path, engine='python', on_bad_lines=lambda x: x[:273])
+        df = df.shift(2, axis='columns').fillna('.')
+
+    return filter_path_using_parent(df, parent)
 
 
 def has_mother_child(row):
