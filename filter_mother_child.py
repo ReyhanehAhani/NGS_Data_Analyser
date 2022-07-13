@@ -4,16 +4,11 @@ from typing import List
 import io
 
 parser = argparse.ArgumentParser(description='Process csv gene files')
-parser.add_argument('mother', type=str, help='path for mother csv file',
-                    const=1, nargs='?', default='mother_child/filtered_MOT19305_2.csv')
-parser.add_argument('child', type=str, help='path for child csv file',
-                    const=1, nargs='?', default='mother_child/filtered_MOT17517_3.csv')
-parser.add_argument('mother_path', type=str, help='path for mother csv file',
-                    const=1, nargs='?', default='mother_child/filtered_MOT19305_path_3.csv')
-parser.add_argument('child_path', type=str, help='path for child csv file',
-                    const=1, nargs='?', default='mother_child/filtered_MOT17517_path_3.csv')
-parser.add_argument('output', type=str, help='path for output xlsx file',
-                    const=1, nargs='?', default='mother_child/output.xlsx')
+parser.add_argument('mother', type=str, help='path for mother csv file')
+parser.add_argument('child', type=str, help='path for child csv file')
+parser.add_argument('mother_path', type=str, help='path for mother csv file')
+parser.add_argument('child_path', type=str, help='path for child csv file')
+parser.add_argument('output', type=str, help='path for output xlsx file')
 args = parser.parse_args()
 
 
@@ -112,7 +107,7 @@ def main():
 
     common_mother_child_path.to_excel(writer, sheet_name='Sheet1',
                                       index=False, startrow=current_row, header=False)
-    current_row += not_common_child.shape[0]
+    current_row += common_mother_child_path.shape[0]
 
     worksheet = writer.sheets['Sheet1']
     workbook = writer.book
@@ -136,12 +131,10 @@ def main():
     not_common_child.to_excel(writer, sheet_name='Sheet1',
                               index=False, startrow=current_row, header=False)
     current_row += not_common_child.shape[0]
-    current_row += 1
 
     not_common_child_path.to_excel(writer, sheet_name='Sheet1',
                               index=False, startrow=current_row, header=False)
     current_row += not_common_child_path.shape[0]
-    current_row += 1
 
     writer.save()
 
