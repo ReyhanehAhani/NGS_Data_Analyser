@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np 
+
 import argparse
 import io
 import pathlib
@@ -21,20 +23,17 @@ class GeneralParser():
     def error(self, message: str):
         print("Error:", message)
 
+    def success(self, message: str):
+        print(message)
+
     def save_xlsx(self, dataframes: List[Tuple[pd.DataFrame, str]], output: Path):
-        current_row = 1
+        current_row = 0
         writer = pd.ExcelWriter(output, engine='xlsxwriter')
 
-        # Write the first dataframe to create the Sheet
-        first_df, first_label = dataframes[0]
-        first_df.to_excel(writer, sheet_name='Sheet1', index=False, startrow=current_row, startcol=0)
-        current_row += first_df.shape[0]
-
-        del dataframes[0]
-
         # Get the worksheet and create the style
-        worksheet = writer.sheets['Sheet1']
         workbook = writer.book
+        worksheet = workbook.add_worksheet('Sheet1')
+        writer.sheets['Sheet1'] = worksheet
 
         merge_format = workbook.add_format({
             'bold':     True,
@@ -45,37 +44,83 @@ class GeneralParser():
             'font_size': 16
         })
 
-        worksheet.merge_range(0, 0, 0, 3, first_label, merge_format)
-        current_row += 1
-
-        # Write the rest of the dataframes
-        for (df, label) in dataframes:
+        for index, (df, label) in enumerate(dataframes):
             worksheet.merge_range(current_row, 0, current_row, 3, label, merge_format)
             current_row += 1
-            df.to_excel(writer, sheet_name='Sheet1', header=False, index=False, startrow=current_row)
+            df.sort_values('Gene.refGene').to_excel(writer, sheet_name='Sheet1', header=index == 0, index=False, startrow=current_row)
             current_row += df.shape[0]
             current_row += 1
 
         writer.save()
 
+    def read_faulty_csv(self, path: Path) -> pd.DataFrame: 
+        df: pd.DataFrame | None = None
+        columns: List[str] | None = None
+        max_columns: int = 0
+
+        with open(path, 'r') as f:
+            columns = list(dict.fromkeys([x for x in f.readline().strip().split(',') if x != '']))
+            df = pd.DataFrame()
+
+            data_buffer = []
+            
+            for index, line in enumerate(f): 
+                print(index, end='\r')
+
+                line = line.strip()
+                data = line.split(',')[:len(columns)]
+                data = [x.replace('"', '').strip() for x in data]
+                data_buffer.append(data)
+
+                if index % 250 == 0:
+                    small_df = pd.DataFrame(data_buffer)
+                    df = pd.concat([small_df, df], ignore_index=True)
+                    data_buffer.clear()
+
+            if data_buffer:
+                small_df = pd.DataFrame(data_buffer)
+                df = pd.concat([small_df, df], ignore_index=True)
+                data_buffer.clear()
+
+            df.columns = columns
+        
+        return df
+
     def read_csv(self, path: Path, parent: str, data_filter: Callable[[pd.DataFrame, str], pd.DataFrame]) -> pd.DataFrame:
         try:
-            df = pd.read_csv(path)
+            df = pd.read_csv(path, index_col=False)
         except:
-            self.warn('Warning: File has contains bad lines, Some data might get corrupted!')
-            df = pd.read_csv(path, engine='python', on_bad_lines=lambda x: x[:273])
-            df = df.shift(2, axis='columns').fillna('.')
+            self.warn(f'{path} contains bad lines, trying slower method')
+            df = self.read_faulty_csv(path)
+            df.to_csv('output.csv')
+        
+        self.success(f'{path} was read successfully')
 
         return data_filter(df, parent)
 
     def concat_dataframes(self, dataframes: List[Tuple[pd.DataFrame, str]]):
         dataframes = [df.astype(str).reset_index(drop=True) for df in dataframes]
-        return pd.concat(dataframes).sort_values(['Gene.refGene'])
+        return pd.concat(dataframes, ignore_index=True).reset_index(drop=True).sort_values(['Gene.refGene'])
 
     def mother_and_father_share_gene(self, row: pd.Series):
         row = row.sort_values('Parent')
         parents = tuple(row['Parent'].values)
         return ('mother' in parents) and ('father' in parents)
+    
+    def compound_gene(self, row: pd.Series, match_columns: List[str]):
+        row = row.sort_values('Parent')
+        parents = tuple(row['Parent'].values)
+
+        if len(parents) != 2:
+            return False
+
+        if not (('mother' in parents) and ('father' in parents)):
+            return False
+
+        father = row[row['Parent'] == 'father']
+        mother = row[row['Parent'] == 'mother']
+        
+        return not np.array_equal(father[match_columns].values, mother[match_columns].values)
 
     def mother_and_child_share_gene(self, row: pd.Series):
         row = row.sort_values('Parent')
@@ -84,6 +129,10 @@ class GeneralParser():
     def mother_father_and_child_do_not_share_gene(self, row: pd.Series):
         row = row.sort_values('Parent')
         return ('father' not in row['Parent'].values) and ('mother' not in row['Parent'].values)
+
+    def not_shared_path(self, row: pd.Series): 
+        row = row[row['Parent'] != 'child']
+        return len(row['Parent'].values) == 1
 
     def mother_and_child_or_father_and_child_share_gene(self, row : pd.Series):
         row = row.sort_values('Parent')
@@ -155,7 +204,8 @@ class FatherMotherParser(GeneralParser):
         path_df = self.concat_dataframes([mother_path, father_path])
 
         mother_and_father_shared_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_father_share_gene)
-        compound_gene = normal_df[(normal_df.duplicated(subset=['Gene.refGene'], keep=False))]
+        compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
+        
         dangerous_gene = normal_df[(normal_df['ExonicFunc.refGene'].isin(self.gene_exceptions))
                           | (normal_df['ExonicFunc.ensGene'].isin(self.gene_exceptions))
                           | (normal_df['ExonicFunc.knownGene'].isin(self.gene_exceptions))
@@ -201,8 +251,8 @@ class MotherChildParser(GeneralParser):
 
         shared_mother_child_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
         shared_mother_child_path = path_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
-        not_shared_mother_child_gene = normal_df.groupby('Gene.refGene').filter(mother_father_and_child_do_not_share_gene)
-        not_shared_mother_child_path = path_df.groupby('Gene.refGene').filter(mother_father_and_child_do_not_share_gene)
+        not_shared_mother_child_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
+        not_shared_mother_child_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
         
         shared_mother_child = self.concat_dataframes([
             shared_mother_child_gene, 
@@ -248,15 +298,41 @@ class FatherMotherChildParser(GeneralParser):
         normal_df = self.concat_dataframes([father, mother, child])
         path_df = self.concat_dataframes([father_path, mother_path, child_path])
 
-        shared_gene = normal_df.groupby('Gene.refGene').filter(self.mother_and_child_or_father_and_child_share_gene)
-        shared_gene_path = path_df.groupby('Gene.refGene').filter(self.mother_and_child_or_father_and_child_share_gene)
+        shared_gene = normal_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_or_father_and_child_share_gene)
+        shared_gene_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_or_father_and_child_share_gene)
         
         not_shared_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
         not_shared_gene_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
 
+        shared_gene_without_child = normal_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_father_share_gene)
+        shared_gene_without_child_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_father_share_gene)
+        
+        shared_gene_without_child = shared_gene_without_child[shared_gene_without_child['Parent'] != 'child']
+        shared_gene_without_child_path = shared_gene_without_child_path[shared_gene_without_child_path['Parent'] != 'child']
+
+        compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
+
+        father_mother_child_shared = self.concat_dataframes([shared_gene, shared_gene_path])
+        father_mother_child_not_shared = self.concat_dataframes([not_shared_gene, not_shared_gene_path])
+        father_mother_shared = self.concat_dataframes([shared_gene_without_child, shared_gene_without_child_path])
+
+        dangerous_gene = normal_df[(normal_df['ExonicFunc.refGene'].isin(self.gene_exceptions))
+                          | (normal_df['ExonicFunc.ensGene'].isin(self.gene_exceptions))
+                          | (normal_df['ExonicFunc.knownGene'].isin(self.gene_exceptions))
+                          | (normal_df['Func.refGene'].isin(self.gene_exceptions))
+                          | (normal_df['Function_description'].isin(self.gene_exceptions))]
+        
+        dangerous_gene = dangerous_gene[dangerous_gene['Parent'] != 'child']
+
+        mother_and_father_not_shared_path = path_df.groupby('Gene.refGene').filter(self.not_shared_path)
+        mother_and_father_not_shared_path = mother_and_father_not_shared_path[mother_and_father_not_shared_path['Parent'] != 'child']
         datasets = [
-            (self.concat_dataframes([shared_gene, shared_gene_path]), 'موارد مشترک در پدر و مادر و فرزند'),
-            (self.concat_dataframes([not_shared_gene, not_shared_gene_path]), 'موارد مشترک در پدر و مادر و فرزند')
+            (father_mother_child_shared, 'موارد مشترک در پدر و مادر و فرزند'),
+            (father_mother_child_not_shared, 'موارد غیرمشترک در پدر و مادر و فرزند'),
+            (father_mother_shared, 'موارد مشترک در زوج'),
+            (compound_gene, 'ژن مشترک برای احتمال کامپوند'),
+            (dangerous_gene, 'موارد خطرناک در هر یک از زوجین'),
+            (mother_and_father_not_shared_path, 'موارد پاتوژن غیر مشترک در زوج')
         ]
 
         self.save_xlsx(datasets, self.output)
