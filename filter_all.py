@@ -92,7 +92,6 @@ class GeneralParser():
         except:
             self.warn(f'{path} contains bad lines, trying slower method')
             df = self.read_faulty_csv(path)
-            df.to_csv('output.csv')
         
         self.success(f'{path} was read successfully')
 
@@ -167,6 +166,7 @@ class GeneralParser():
         return df
 
     def filter_path(self, df: pd.DataFrame, parent: str) -> pd.DataFrame:
+
         df = df[(df['Hom Iranome'] == '0') | (df['Hom Iranome'] == '.')]
         df = df[~(df['CLNSIG'].str.contains('Benign', case=False))]
 
@@ -250,7 +250,7 @@ class MotherChildParser(GeneralParser):
         path_df = self.concat_dataframes([mother_path, child_path])
 
         shared_mother_child_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
-        shared_mother_child_path = path_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
+        shared_mother_child_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_share_gene)
         not_shared_mother_child_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
         not_shared_mother_child_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
         
@@ -259,14 +259,13 @@ class MotherChildParser(GeneralParser):
             shared_mother_child_path
         ])
 
-        not_shared_mother_child = self.concat_dataframes([
-            not_shared_mother_child_gene,
-            not_shared_mother_child_path
-        ])
+        
 
         dataframes = [
             (shared_mother_child, 'موارد مشترک در مادر و فرزند'),
-            (not_shared_mother_child, 'موارد غیرمشترک در فرزند (‌فقط فرزند)')
+            (not_shared_mother_child_gene, 'موارد غیرمشترک در فرزند (‌فقط فرزند)'),
+            (not_shared_mother_child_path, 'موارد پاتوژن فرزند'),
+            (path_df[(path_df['Parent'] == 'mother') & (path_df['Zygosity'] == 'hom')], 'موارد پاتوژن مادر')
         ]
 
         self.save_xlsx(dataframes, self.output)
