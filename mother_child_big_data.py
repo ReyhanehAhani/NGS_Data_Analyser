@@ -1,4 +1,6 @@
 import itertools
+import shutil
+import argparse
 from multiprocessing.pool import ThreadPool as Pool
 
 FILTER_INTRONIC = True
@@ -67,8 +69,8 @@ class ChildParser(ThreadedParser):
         for key, group in itertools.groupby(self.childGenes, lambda x: x['Gene.refGene']):
             duplicate_group, group = itertools.tee(group)
             if len(tuple(duplicate_group)) > 1: 
-                item = next(group)
-                self.sharedGenes.append(item)
+                for item in group:
+                    self.sharedGenes.append(item)
 
         return self.sharedGenes
 
@@ -101,14 +103,27 @@ class MotherParser(ThreadedParser):
         return self.sharedGenes
 
 if __name__ == '__main__':
-    childParser = ChildParser('filtered_MOT18847_comp_3.csv')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--keep-intronic', action='store_true')
+    parser.add_argument('--no-keep-intronic', dest='keep-intronic', action='store_false')
+    parser.set_defaults(keep_intronic=False)
+    parser.add_argument('mother', help="The file address for the mother gene csv file")
+    parser.add_argument('child', help="The file address for the child gene csv file")
+
+    args = parser.parse_args()
+
+    childName = ''.join(args.child.split('.')[:-1])
+    shutil.copyfile(args.child, f"{childName}.copy.csv")
+
+    FILTER_INTRONIC = not args.keep_intronic
+
+    childParser = ChildParser(args.child)
     childGenes, childColumns = childParser.run()  
 
-    motherParser = MotherParser('Annotation_MOT18839/Annotation_MOT18839.csv', childGenes)
+    motherParser = MotherParser(args.mother, childGenes)
     sharedGenes = motherParser.run()
 
-
-    with open('output.csv', 'w') as f:
+    with open(args.child, 'w') as f:
         f.write(','.join(childColumns) + '\n')
         
         for genes in sharedGenes:
