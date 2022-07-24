@@ -1,4 +1,3 @@
-from tkinter import E
 import pandas as pd
 import numpy as np 
 
@@ -73,11 +72,15 @@ class GeneralParser():
         })
 
         for index, (df, label) in enumerate(dataframes):
-            worksheet.merge_range(current_row, 0, current_row, 3, label, merge_format)
+            if index == 0:
+                columns = pd.DataFrame(columns=df.columns)
+                columns.to_excel(writer, sheet_name='Sheet1', header=True, index=False, startrow=current_row)
+                current_row += 1
+
+            worksheet.merge_range(current_row, 4, current_row, 7, label, merge_format)
             current_row += 1
-            df.sort_values('Gene.refGene').to_excel(writer, sheet_name='Sheet1', header=index == 0, index=False, startrow=current_row)
+            df.sort_values('Gene.refGene').to_excel(writer, sheet_name='Sheet1', header=False, index=False, startrow=current_row)
             current_row += df.shape[0]
-            current_row += 1
 
         writer.save()
 
@@ -126,7 +129,13 @@ class GeneralParser():
 
     def concat_dataframes(self, dataframes: List[pd.DataFrame]) -> pd.DataFrame:
         dataframes = [df.astype(str).reset_index(drop=True) for df in dataframes]
-        return pd.concat(dataframes, ignore_index=True).reset_index(drop=True).sort_values(['Gene.refGene'])
+        df = pd.concat(dataframes, ignore_index=True).reset_index(drop=True).sort_values(['Gene.refGene'])
+
+        df['_rank'] = df.groupby(['Gene.refGene', 'Parent']).cumcount()
+        df.sort_values(['Gene.refGene', '_rank'], inplace=True)
+        df.drop(labels=['_rank'], axis=1, inplace=True)
+
+        return df
 
     def mother_and_father_share_gene(self, row: pd.Series) -> bool:
         row = row.sort_values('Parent')
@@ -271,20 +280,31 @@ class FatherMotherParser(GeneralParser):
         path_df = self.concat_dataframes([mother_path, father_path])
 
         mother_and_father_shared_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_father_share_gene)
+        normal_df.drop(labels=mother_and_father_shared_gene.index, inplace=True)
+
         compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
+        normal_df.drop(labels=compound_gene.index, inplace=True)
         
         dangerous_gene = normal_df[(normal_df['ExonicFunc.refGene'].isin(self.gene_exceptions))
                           | (normal_df['ExonicFunc.ensGene'].isin(self.gene_exceptions))
                           | (normal_df['ExonicFunc.knownGene'].isin(self.gene_exceptions))
                           | (normal_df['Func.refGene'].isin(self.gene_exceptions))
                           | (normal_df['Function_description'].isin(self.gene_exceptions))]
+        dangerous_gene = dangerous_gene[dangerous_gene['Func.refGene'] != 'intronic']
+        normal_df.drop(labels=dangerous_gene.index, inplace=True)
         
         mother_and_father_shared_path = path_df.groupby(self.match_columns).filter(self.mother_and_father_share_gene)
+        path_df.drop(labels=mother_and_father_shared_path.index, inplace=True)
+        
         mother_and_father_not_shared_path = path_df[~(path_df.duplicated(subset=self.match_columns, keep=False))]
+        path_df.drop(labels=mother_and_father_not_shared_path.index, inplace=True)
         
         mother_hom_check = path_df[(path_df['Zygosity'] == 'hom') & (path_df['Parent'] == 'mother')]
+        path_df.drop(labels=mother_hom_check.index, inplace=True)
+        
         father_hom_check = path_df[(path_df['Zygosity'] == 'hom') & (path_df['Parent'] == 'father')]
-
+        path_df.drop(labels=father_hom_check.index, inplace=True)
+        
         shared_genes = self.concat_dataframes([mother_and_father_shared_gene, mother_and_father_shared_path])
         
         datasets = [(shared_genes, 'موارد مشترک در زوج'),
@@ -322,31 +342,27 @@ class MotherChildParser(GeneralParser):
         normal_df = self.concat_dataframes([mother, child])
         path_df = self.concat_dataframes([mother_path, child_path])
 
-        shared_mother_child_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
-        shared_mother_child_path = path_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
+        for_check = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AD'))        
+        carrier_chance = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AR'))
 
+        shared_mother_child_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
+        normal_df.drop(labels=shared_mother_child_gene.index, inplace=True)
+        
+        shared_mother_child_path = path_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
+        path_df.drop(labels=shared_mother_child_path.index, inplace=True)
+        
         not_shared_mother_child_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
+        normal_df.drop(labels=not_shared_mother_child_gene.index, inplace=True)
+        
         not_shared_mother_child_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
+        path_df.drop(labels=not_shared_mother_child_path.index, inplace=True)
         
         shared_mother_child_path_without_het = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AR'))
-
-        check_filter = (lambda x: self.for_check_in_mother_child(x, omim_file))
+        path_df.drop(labels=shared_mother_child_path_without_het.index, inplace=True)
         
-        for_check_in_child = self.concat_dataframes([
-            path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AD')),
-            child_path[child_path.apply(check_filter, axis=1)]
-        ])
-
-        for_check_in_mother = self.concat_dataframes([
-            path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AD')),
-            mother_path[mother_path.apply(check_filter, axis=1)]
-        ])
-
-        for_check_in_mother = for_check_in_mother[(for_check_in_mother['Het Iranome'] == '.') | (for_check_in_mother['Het Iranome'] == '0')]
 
         shared_gene = self.concat_dataframes([shared_mother_child_gene, shared_mother_child_path])
         not_shared_path = pd.merge(path_df, self.concat_dataframes([shared_mother_child_path_without_het, shared_mother_child_path]), how='left', indicator=True).query("_merge == 'left_only'").drop('_merge', axis=1)
-        carrier_chance = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_gene(x, False))
 
         dataframes = [
             (shared_gene, 'موارد مشترک در مادر و فرزند'),
@@ -355,8 +371,8 @@ class MotherChildParser(GeneralParser):
             (mother_path[mother_path['Zygosity'] == 'hom'], 'موارد پاتوژن مادر'),
             (carrier_chance, 'احتمال ناقل بودن در مادر و فرزند'),
             (shared_mother_child_path_without_het, 'موارد مشترک پاتوژن مشترک در مادر و فرزند'),
-            (for_check_in_child, 'برای بررسی در فرزند'),
-            (for_check_in_mother, 'برای بررسی در مادر'),
+            (for_check[for_check['Parent'] == 'child'], 'برای بررسی در فرزند'),
+            (for_check[for_check['Parent'] == 'mother'], 'برای بررسی در مادر'),
             (not_shared_path, 'موارد غیرمشترک پاتوژن در مادر و فرزند')
         ]
 
@@ -394,20 +410,32 @@ class FatherMotherChildParser(GeneralParser):
         normal_df = self.concat_dataframes([father, mother, child])
         path_df = self.concat_dataframes([father_path, mother_path, child_path])
 
+        for_check = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AD'))
+
         shared_gene = normal_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_or_father_and_child_share_gene)
+        normal_df.drop(labels=shared_gene.index, inplace=True)
+        
         shared_gene_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_or_father_and_child_share_gene)
+        path_df.drop(labels=shared_gene_path.index, inplace=True)
         
         not_shared_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
+        normal_df.drop(labels=not_shared_gene.index, inplace=True)
+        
         not_shared_gene_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
-
+        path_df.drop(labels=not_shared_gene_path.index, inplace=True)
+        
         shared_gene_without_child = normal_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_father_share_gene)
+        normal_df.drop(labels=shared_gene_without_child.index, inplace=True)
+        
         shared_gene_without_child_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_father_share_gene)
+        path_df.drop(labels=shared_gene_without_child_path.index, inplace=True)
         
         shared_gene_without_child = shared_gene_without_child[shared_gene_without_child['Parent'] != 'child']
         shared_gene_without_child_path = shared_gene_without_child_path[shared_gene_without_child_path['Parent'] != 'child']
 
         compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
-
+        normal_df.drop(labels=compound_gene.index, inplace=True)
+        
         father_mother_child_shared = self.concat_dataframes([shared_gene, shared_gene_path])
         father_mother_child_not_shared = self.concat_dataframes([not_shared_gene, not_shared_gene_path])
         father_mother_shared = self.concat_dataframes([shared_gene_without_child, shared_gene_without_child_path])
@@ -419,19 +447,15 @@ class FatherMotherChildParser(GeneralParser):
                           | (normal_df['Function_description'].isin(self.gene_exceptions))]
         
         dangerous_gene = dangerous_gene[dangerous_gene['Parent'] != 'child']
-
+        dangerous_gene = dangerous_gene[dangerous_gene['Func.refGene'] != 'intronic']
+        normal_df.drop(labels=dangerous_gene.index, inplace=True)
+        
         mother_and_father_not_shared_path = path_df.groupby('Gene.refGene').filter(self.not_shared_path)
         mother_and_father_not_shared_path = mother_and_father_not_shared_path[mother_and_father_not_shared_path['Parent'] != 'child']
-        
-        check_filter = (lambda x: self.for_check_in_father_mother_child(x, omim_file))
-        
-        for_check_in_child = child_path[child_path.apply(check_filter, axis=1)]
-        for_check_in_mother = mother_path[mother_path.apply(check_filter, axis=1)]
-        for_check_in_father = father_path[father_path.apply(check_filter, axis=1)]
-        for_check_in_mother = for_check_in_mother[(for_check_in_mother['Het Iranome'] == '.') | (for_check_in_mother['Het Iranome'] == '0')]
+        path_df.drop(labels=mother_and_father_not_shared_path.index, inplace=True)
 
-        check_combined = self.concat_dataframes([for_check_in_child, for_check_in_father, for_check_in_mother])
-        not_shared_path = pd.merge(path_df, check_combined, how='left', indicator=True).query("_merge == 'left_only'").drop('_merge', axis=1)
+        
+        not_shared_path = path_df
 
         datasets = [
             (father_mother_child_shared, 'موارد مشترک در پدر و مادر و فرزند'),
@@ -440,9 +464,9 @@ class FatherMotherChildParser(GeneralParser):
             (compound_gene, 'ژن مشترک برای احتمال کامپوند'),
             (dangerous_gene, 'موارد خطرناک در هر یک از زوجین'),
             (mother_and_father_not_shared_path, 'موارد پاتوژن غیر مشترک در زوج'),
-            (for_check_in_father, 'برای بررسی در پدر'),
-            (for_check_in_mother, 'برای بررسی در مادر'),
-            (for_check_in_child, 'برای بررسی در فرزند'),
+            (for_check[for_check['Parent'] == 'father'], 'برای بررسی در پدر'),
+            (for_check[for_check['Parent'] == 'mother'], 'برای بررسی در مادر'),
+            (for_check[for_check['Parent'] == 'child'], 'برای بررسی در فرزند'),
             (not_shared_path, 'موارد پاتوژن غیرمشترک در فرزند و پدر و مادر')
         ]
 
@@ -451,7 +475,10 @@ class FatherMotherChildParser(GeneralParser):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--keep-intronic', action=argparse.BooleanOptionalAction, help="Skip filtering introinic values", default=False)
+    parser.add_argument('--keep-intronic', action='store_true')
+    parser.add_argument('--no-keep-intronic', dest='keep-intronic', action='store_false')
+    parser.set_defaults(keep_intronic=False)
+
     subparsers = parser.add_subparsers(dest='mode', required=True)
 
     father_mother = subparsers.add_parser('father_mother', help="Filter the father_mother dataset")
