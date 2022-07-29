@@ -4,7 +4,9 @@ import gzip
 import pathlib
 import matplotlib.pyplot as plt
 
-from typing import Union, Any, List, Tuple
+from typing import Union, Any, List
+
+import base64
 
 Path = Union[str, pathlib.Path]
 
@@ -41,18 +43,17 @@ class ThreadedParser():
 class MetaDataParser(ThreadedParser):
     def __init__(self, path: Path, phenotypes: List[str]):
         super().__init__(path)
-        self.found = dict.fromkeys(phenotypes, [])
+        self.found = dict.fromkeys(phenotypes)
+        for k in self.found.keys():
+            self.found[k] = []
 
     def processLine(self, line: str):
         data = tuple(x.strip() for x in line.split('\t'))
 
-        if len(data) < 4:
-            return
-
         for phenotype in self.found.keys():
-            if phenotype in data[3]:
+            if phenotype.lower() in line.lower():
                 self.found[phenotype].append(data[0])
-
+                
     def afterProcess(self):
         return self.found
 
@@ -125,30 +126,39 @@ def main():
 
     fig, ax = plt.subplots()
     plt.grid(zorder=0)
+    
+    max_freq = 0
 
-
-    for index, (key, items) in enumerate(phenotypes.items()):
+    for index, (phenotype, pids) in enumerate(phenotypes.items()): 
         nHet = 0
         nHom = 0
 
-        for item in items: 
-            if zygosity := chromosomes.get(item):
-                if zygosity == 'het':
+        for pid in pids: 
+            if pid in chromosomes.keys():
+                if chromosomes[pid] == 'het':
                     nHet += 1
                 else:
                     nHom += 1
-
-        freq = ((nHet * 1) + (nHom * 2)) / (2 * len(chromosomes))
         
+        if len(pids) > 0:
+            freq = (1 * nHet + 2 * nHom) / (2 * len(pids))
+            
+            if freq > max_freq:
+                max_freq = freq
+        else: 
+            freq = 0
+
+        text = f'''Freq: {freq}\nn(Het): {nHet}\nn(Hom): {nHom}'''
         ax.bar(index, freq, width=1, edgecolor="white", linewidth=0.7)
-        ax.text(index - 0.25, 0.20 + freq, f'Freq: {round(freq, 4)}')
-        ax.text(index - 0.25, 0.15 + freq, f'nHet: {nHet}')
-        ax.text(index - 0.25, 0.10 + freq, f'nHom: {nHom}')
-    
-    ax.set_ylim((0, 1.3))
-    ax.set_xticks(range(len(phenotypes.items())), labels=phenotypes.keys())
+        ax.text(index - 0.25, 0.05 + freq, text)
+        
+    ax.set_ylim((0, max_freq + 0.25))
+    ax.set_xlabel('Phenotypes')
+    ax.set_ylabel('Frequency')
+    ax.set_xticks(range(len(phenotypes.items())), labels=phenotypes.keys(), rotation=45)
 
     figure = plt.gcf()
+    #figure.subplots_adjust(bottom=0.4)
     figure.set_size_inches(20, 18)
     plt.savefig(f"{args.chr}_{args.pos}_{args.ref}_{args.alt}.png", dpi=100)
 
