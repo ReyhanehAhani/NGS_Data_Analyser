@@ -59,7 +59,7 @@ class MetaDataParser(ThreadedParser):
             self.found[k] = []
 
     def processLine(self, line: str):
-        data = tuple(x.strip() for x in line.split('\t'))
+        data = tuple(x.strip() for x in line.split("\t"))
 
         for phenotype in self.found.keys():
             if phenotype.lower() in line.lower():
