@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np 
-
+import os
 import argparse
 import io
 import pathlib
@@ -10,7 +10,7 @@ from typing import Callable, Tuple, List, Union, Dict
 Path = Union[str, pathlib.Path]
 
 def generate_file_name(*files: List[str]) -> str: 
-    files = [file.split('/')[-1].replace('filtered_', '').replace('.csv','')[:-2] for file in files]
+    files = [file.split(os.sep)[-1].replace('filtered_', '').replace('.csv','')[:-2] for file in files]
     return f"filtered_{'&'.join(files)}.xlsx"
 
 class GeneralParser():
