@@ -78,7 +78,7 @@ class ChildParser(ThreadedParser):
             if data[self.FUNC_REFGENE] == 'intronic': 
                 return
         
-        if data[self.ZYGOSITY] == 'hom':
+        if data[self.ZYGOSITY] == "hom":
             return
 
         self.childGenes.append(data)
