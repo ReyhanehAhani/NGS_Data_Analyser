@@ -1,3 +1,4 @@
+from itertools import accumulate
 import pandas as pd
 import numpy as np 
 import os
@@ -53,7 +54,24 @@ class GeneralParser():
 
             return filtered_genes
 
+    def drop_duplicates_in_dataframes(self, dataframes: List[Tuple[pd.DataFrame, str]], columns: List[str]) -> List[Tuple[pd.DataFrame, str]]:
+        accumulator = pd.DataFrame(columns=dataframes[0][0].columns)
+        
+        dfs = []
+
+        for df, label in dataframes: 
+            if len(accumulator) > 0:
+                t = df[~df.set_index(columns).index.isin(accumulator.set_index(columns).index)]
+                dfs.append((t, label))
+            else:
+                dfs.append((df, label))
+ 
+            accumulator = pd.concat((accumulator, df))
+
+        return dfs
+
     def save_xlsx(self, dataframes: List[Tuple[pd.DataFrame, str]], output: Path):
+        dataframes = self.drop_duplicates_in_dataframes(dataframes, ['Parent', 'Chr', 'Start', 'End', 'Ref', 'Alt', 'Gene.refGene'])
         current_row: int = 0
         writer = pd.ExcelWriter(output, engine='xlsxwriter')
 
@@ -79,7 +97,7 @@ class GeneralParser():
 
             worksheet.merge_range(current_row, 4, current_row, 7, label, merge_format)
             current_row += 1
-            df.sort_values('Gene.refGene').to_excel(writer, sheet_name='Sheet1', header=False, index=False, startrow=current_row)
+            df.sort_values(['Gene.refGene', 'Ref', 'Alt']).to_excel(writer, sheet_name='Sheet1', header=False, index=False, startrow=current_row)
             current_row += df.shape[0]
 
         writer.save()
@@ -145,9 +163,6 @@ class GeneralParser():
     def compound_gene(self, row: pd.Series, match_columns: List[str]) -> bool:
         row = row.sort_values('Parent')
         parents = tuple(row['Parent'].values)
-
-        if len(parents) != 2:
-            return False
 
         if not (('mother' in parents) and ('father' in parents)):
             return False
@@ -253,6 +268,14 @@ class GeneralParser():
 
         return df
 
+
+    def drop_from(self, set_, subset, columns = ['Parent', 'Chr', 'Start', 'End', 'Ref', 'Alt', 'Gene.refGene']):
+        df = set_.drop(labels=subset.index, errors='ignore')
+        df = df[~df.set_index(columns).reset_index().index.isin(subset.set_index(columns).reset_index().index)]
+
+        return df
+
+
     def run(self):
         raise NotImplementedError()
 
@@ -260,6 +283,7 @@ class GeneralParser():
 class FatherMotherParser(GeneralParser):
     def __init__(self, mother: Path, father: Path, 
                        mother_path: Path, father_path: Path, 
+                       omim: Path,
                        output: Path,
                        keep_intronic: bool = False):
         self.mother = mother
@@ -268,8 +292,11 @@ class FatherMotherParser(GeneralParser):
         self.father_path = father_path
         self.output = output
         self.keep_intronic = keep_intronic
+        self.omim = omim
     
-    def run(self): 
+    def run(self):         
+        omim_file = self.read_OMIMfile(self.omim)
+
         mother = self.read_csv(self.mother, 'mother', self.filter_normal, self.keep_intronic)
         father = self.read_csv(self.father, 'father', self.filter_normal, self.keep_intronic)
 
@@ -280,39 +307,32 @@ class FatherMotherParser(GeneralParser):
         path_df = self.concat_dataframes([mother_path, father_path])
 
         mother_and_father_shared_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_father_share_gene)
-        normal_df.drop(labels=mother_and_father_shared_gene.index, inplace=True)
 
-        compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
-        normal_df.drop(labels=compound_gene.index, inplace=True)
+        mother_and_father_shared_path = path_df.groupby(self.match_columns).filter(self.mother_and_father_share_gene)
+
+        shared_genes = self.concat_dataframes([mother_and_father_shared_gene, mother_and_father_shared_path])
+        shared_genes.drop_duplicates(['Parent', 'Chr', 'Start', 'End', 'Ref', 'Alt'], inplace=True)
         
+        compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
+
         dangerous_gene = normal_df[(normal_df['ExonicFunc.refGene'].isin(self.gene_exceptions))
                           | (normal_df['ExonicFunc.ensGene'].isin(self.gene_exceptions))
                           | (normal_df['ExonicFunc.knownGene'].isin(self.gene_exceptions))
                           | (normal_df['Func.refGene'].isin(self.gene_exceptions))
                           | (normal_df['Function_description'].isin(self.gene_exceptions))]
         dangerous_gene = dangerous_gene[dangerous_gene['Func.refGene'] != 'intronic']
-        normal_df.drop(labels=dangerous_gene.index, inplace=True)
-        
-        mother_and_father_shared_path = path_df.groupby(self.match_columns).filter(self.mother_and_father_share_gene)
-        path_df.drop(labels=mother_and_father_shared_path.index, inplace=True)
-        
+
         mother_and_father_not_shared_path = path_df[~(path_df.duplicated(subset=self.match_columns, keep=False))]
-        path_df.drop(labels=mother_and_father_not_shared_path.index, inplace=True)
-        
-        mother_hom_check = path_df[(path_df['Zygosity'] == 'hom') & (path_df['Parent'] == 'mother')]
-        path_df.drop(labels=mother_hom_check.index, inplace=True)
-        
-        father_hom_check = path_df[(path_df['Zygosity'] == 'hom') & (path_df['Parent'] == 'father')]
-        path_df.drop(labels=father_hom_check.index, inplace=True)
-        
-        shared_genes = self.concat_dataframes([mother_and_father_shared_gene, mother_and_father_shared_path])
+
+        f = lambda x, *args, **kwargs: self.for_check_in_father_mother_child(x, omim_file)
+        for_check = path_df[path_df.apply(f, axis=1, reduce=True)]
         
         datasets = [(shared_genes, 'موارد مشترک در زوج'),
                     (compound_gene, 'ژن مشترک برای احتمال کامپوند'),
                     (dangerous_gene, 'موارد خطرناک در هر یک از زوجین'),
                     (mother_and_father_not_shared_path, 'موارد پاتوژن غیرمشترک'),
-                    (father_hom_check, 'برای بررسی در پدر'),
-                    (mother_hom_check, 'برای بررسی در مادر')]
+                    (for_check[for_check['Parent'] == 'father'], 'برای بررسی در پدر'),
+                    (for_check[for_check['Parent'] == 'mother'], 'برای بررسی در مادر')]
 
         self.save_xlsx(datasets, self.output)
 
@@ -346,20 +366,13 @@ class MotherChildParser(GeneralParser):
         carrier_chance = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AR'))
 
         shared_mother_child_gene = normal_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
-        normal_df.drop(labels=shared_mother_child_gene.index, inplace=True)
-        
         shared_mother_child_path = path_df.groupby(self.match_columns).filter(self.mother_and_child_share_gene)
-        path_df.drop(labels=shared_mother_child_path.index, inplace=True)
-        
+
         not_shared_mother_child_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
-        normal_df.drop(labels=not_shared_mother_child_gene.index, inplace=True)
-        
+
         not_shared_mother_child_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
-        path_df.drop(labels=not_shared_mother_child_path.index, inplace=True)
-        
+
         shared_mother_child_path_without_het = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AR'))
-        path_df.drop(labels=shared_mother_child_path_without_het.index, inplace=True)
-        
 
         shared_gene = self.concat_dataframes([shared_mother_child_gene, shared_mother_child_path])
         not_shared_path = pd.merge(path_df, self.concat_dataframes([shared_mother_child_path_without_het, shared_mother_child_path]), how='left', indicator=True).query("_merge == 'left_only'").drop('_merge', axis=1)
@@ -413,29 +426,22 @@ class FatherMotherChildParser(GeneralParser):
         for_check = path_df.groupby(self.match_columns).filter(lambda x: self.mother_and_child_share_path(x, omim_file, 'AD'))
 
         shared_gene = normal_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_or_father_and_child_share_gene)
-        normal_df.drop(labels=shared_gene.index, inplace=True)
-        
+
         shared_gene_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_child_or_father_and_child_share_gene)
-        path_df.drop(labels=shared_gene_path.index, inplace=True)
-        
+
         not_shared_gene = normal_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
-        normal_df.drop(labels=not_shared_gene.index, inplace=True)
-        
+
         not_shared_gene_path = path_df.groupby('Gene.refGene').filter(self.mother_father_and_child_do_not_share_gene)
-        path_df.drop(labels=not_shared_gene_path.index, inplace=True)
-        
+
         shared_gene_without_child = normal_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_father_share_gene)
-        normal_df.drop(labels=shared_gene_without_child.index, inplace=True)
-        
+
         shared_gene_without_child_path = path_df.groupby([x for x in self.match_columns if x != 'Zygosity']).filter(self.mother_and_father_share_gene)
-        path_df.drop(labels=shared_gene_without_child_path.index, inplace=True)
-        
+
         shared_gene_without_child = shared_gene_without_child[shared_gene_without_child['Parent'] != 'child']
         shared_gene_without_child_path = shared_gene_without_child_path[shared_gene_without_child_path['Parent'] != 'child']
 
         compound_gene = normal_df.groupby('Gene.refGene').filter(lambda row: self.compound_gene(row, self.match_columns))
-        normal_df.drop(labels=compound_gene.index, inplace=True)
-        
+
         father_mother_child_shared = self.concat_dataframes([shared_gene, shared_gene_path])
         father_mother_child_not_shared = self.concat_dataframes([not_shared_gene, not_shared_gene_path])
         father_mother_shared = self.concat_dataframes([shared_gene_without_child, shared_gene_without_child_path])
@@ -448,13 +454,10 @@ class FatherMotherChildParser(GeneralParser):
         
         dangerous_gene = dangerous_gene[dangerous_gene['Parent'] != 'child']
         dangerous_gene = dangerous_gene[dangerous_gene['Func.refGene'] != 'intronic']
-        normal_df.drop(labels=dangerous_gene.index, inplace=True)
-        
+
         mother_and_father_not_shared_path = path_df.groupby('Gene.refGene').filter(self.not_shared_path)
         mother_and_father_not_shared_path = mother_and_father_not_shared_path[mother_and_father_not_shared_path['Parent'] != 'child']
-        path_df.drop(labels=mother_and_father_not_shared_path.index, inplace=True)
 
-        
         not_shared_path = path_df
 
         datasets = [
@@ -492,7 +495,6 @@ def main():
     mother_child.add_argument('child', help="The file address for the child gene csv file")
     mother_child.add_argument('mother_path', help="The file address for the mother pathogen csv file")
     mother_child.add_argument('child_path', help="The file address for the child pathogen csv file")
-    mother_child.add_argument('omim', help="The file address for the omim txt file")
     
     father_mother_child = subparsers.add_parser('father_mother_child', help="Filter the father_mother_child dataset")
     father_mother_child.add_argument('father', help="The file address for the father gene csv file")
@@ -501,13 +503,13 @@ def main():
     father_mother_child.add_argument('father_path', help="The file address for the father pathogen csv file")
     father_mother_child.add_argument('mother_path', help="The file address for the mother pathogen csv file")
     father_mother_child.add_argument('child_path', help="The file address for the child pathogen csv file")
-    father_mother_child.add_argument('omim', help="The file address for the omim txt file")
 
+    parser.add_argument('omim', help="The file address for the omim txt file")
     args = parser.parse_args()
     
     if args.mode == 'father_mother':
         file_name = generate_file_name(args.father, args.mother)
-        FatherMotherParser(args.mother, args.father, args.mother_path, args.father_path, file_name, args.keep_intronic).run()
+        FatherMotherParser(args.mother, args.father, args.mother_path, args.father_path, args.omim, file_name, args.keep_intronic).run()
     elif args.mode == 'mother_child':
         file_name = generate_file_name(args.child, args.mother)
         MotherChildParser(args.mother, args.child, args.mother_path, args.child_path, args.omim, file_name, args.keep_intronic).run()
