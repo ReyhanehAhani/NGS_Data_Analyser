@@ -4,6 +4,8 @@
 
 Deterministic, parameter-driven run logs live in `papermill/` (notebooks + `run_papermill.sh`). **Already-executed artifacts:** see `papermill/published/*.html` and `*.ipynb` for a real Papermill run + HTML export.
 
+**Repo hygiene CI:** `.github/workflows/repo-quality.yml` validates core scripts parse.
+
 ---
 ## Genetic Data Analysis Tool
 
