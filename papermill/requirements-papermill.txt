@@ -1,0 +1,5 @@
+# Pin papermill + nbconvert stack
+papermill>=2.6.0
+jupyter>=1.0.0
+ipykernel>=6.0.0
+pandas>=2.0.0

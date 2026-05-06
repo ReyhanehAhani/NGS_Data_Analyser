@@ -1,4 +1,10 @@
 # NGS_Data_Analyser
+
+## Portfolio — Pillar 2 (Papermill)
+
+Deterministic, parameter-driven run logs live in `papermill/` (notebooks + `run_papermill.sh`). Use them to prove every genomic batch came from a tagged configuration.
+
+---
 this project is about genomic data analysing.
 
 # Genetic Data Analysis Tool
