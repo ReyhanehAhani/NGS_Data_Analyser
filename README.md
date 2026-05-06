@@ -2,7 +2,7 @@
 
 ## Portfolio — Pillar 2 (Papermill)
 
-Deterministic, parameter-driven run logs live in `papermill/` (notebooks + `run_papermill.sh`). Use them to prove every genomic batch came from a tagged configuration.
+Deterministic, parameter-driven run logs live in `papermill/` (notebooks + `run_papermill.sh`). **Already-executed artifacts:** see `papermill/published/*.html` and `*.ipynb` for a real Papermill run + HTML export.
 
 ---
 ## Genetic Data Analysis Tool
