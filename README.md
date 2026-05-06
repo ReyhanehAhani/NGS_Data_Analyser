@@ -5,9 +5,7 @@
 Deterministic, parameter-driven run logs live in `papermill/` (notebooks + `run_papermill.sh`). Use them to prove every genomic batch came from a tagged configuration.
 
 ---
-this project is about genomic data analysing.
-
-# Genetic Data Analysis Tool
+## Genetic Data Analysis Tool
 
 This Python script is a Genetic Data Analysis Tool that allows you to analyze genetic data from different family configurations and generate informative Excel reports based on the analysis results.
 
